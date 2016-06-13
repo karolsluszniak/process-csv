@@ -7,6 +7,8 @@ This is a source code for the article [Elixir vs Ruby: File I/O performance](htt
 
 It does so both in a streaming manner, which is slower but works with all file sizes, and as a faster but less secure and less universal one-shot read.
 
+**Disclaimer:** I'm not after proving that either Elixir or Ruby is "better" at reading files. This is just an exercise to better understand the practical consequences of running simple command-line script via MRI vs running it in a complex Erlang VM environment.
+
 ## Generating samples
 
 You can generate sample CSV file of given size, compilant with the algorithm, like this:
