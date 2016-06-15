@@ -33,6 +33,15 @@ defmodule ProcessCsv do
     File.close(out_file)
   end
 
+  def main([ filename, "stream-chunks-nosplit" ]) do
+    out_file = File.open!(filename <> ".out", [:write, :raw, :delayed_write])
+
+    File.stream!(filename, [], 4000)
+    |> Enum.reduce({"", nil, out_file}, &handle_chunk_without_split/2)
+
+    File.close(out_file)
+  end
+
   defp handle_chunk(chunk, {unfinished_line, file}) do
     (unfinished_line <> chunk)
     |> String.split("\n")
@@ -66,4 +75,31 @@ defmodule ProcessCsv do
   #
   #   rem(num, 2) == 0 || rem(num, 5) == 0
   # end
+
+  defp handle_chunk_without_split(chunk, {line, filter, file}) do
+    process_and_filter_chunk(chunk, line, filter, file)
+  end
+  defp process_and_filter_chunk(<<>>, line, filter, file) do
+    {line, filter, file}
+  end
+  defp process_and_filter_chunk(<<?\n::utf8, rest::binary>>, line, true, file) do
+    IO.binwrite(file, line <> "\n")
+    process_and_filter_chunk(rest, "", nil, file)
+  end
+  defp process_and_filter_chunk(<<?\n::utf8, rest::binary>>, _line, false, file) do
+    process_and_filter_chunk(rest, "", nil, file)
+  end
+  defp process_and_filter_chunk(<<c::utf8, ?,::utf8, rest::binary>>, line, nil, file)
+  when c in [?0, ?2, ?4, ?5, ?6, ?8] do
+    process_and_filter_chunk(rest, line <> <<c>> <> <<?,>>, true, file)
+  end
+  defp process_and_filter_chunk(<<_c::utf8, ?,::utf8, rest::binary>>, _line, nil, file) do
+    process_and_filter_chunk(rest, nil, false, file)
+  end
+  defp process_and_filter_chunk(<<_c::utf8, rest::binary>>, _line, false, file) do
+    process_and_filter_chunk(rest, nil, false, file)
+  end
+  defp process_and_filter_chunk(<<c::utf8, rest::binary>>, line, filter, file) do
+    process_and_filter_chunk(rest, line <> <<c>>, filter, file)
+  end
 end
