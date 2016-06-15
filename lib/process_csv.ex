@@ -34,10 +34,11 @@ defmodule ProcessCsv do
   end
 
   def main([ filename, "stream-chunks-nosplit" ]) do
-    out_file = File.open!(filename <> ".out", [:write, :raw, :delayed_write])
+    out_file = File.open!(filename <> ".out", [:write, :raw, {:delayed_write, 5_000_000, 50}])
+    newline_pattern = :binary.compile_pattern("\n")
 
-    File.stream!(filename, [], 4000)
-    |> Enum.reduce({"", nil, out_file}, &handle_chunk_without_split/2)
+    File.stream!(filename, [], 1_000_000)
+    |> Enum.reduce({nil, "", out_file, newline_pattern}, &handle_chunk_without_split/2)
 
     File.close(out_file)
   end
@@ -48,7 +49,9 @@ defmodule ProcessCsv do
     |> process_lines(file)
   end
 
-  defp process_lines([unfinished_line], file), do: {unfinished_line, file}
+  defp process_lines([unfinished_line], file) do
+    {unfinished_line, file}
+  end
   defp process_lines([line | rest], file) do
     if filter_line(line) do
       IO.binwrite(file, line <> "\n")
@@ -76,30 +79,38 @@ defmodule ProcessCsv do
   #   rem(num, 2) == 0 || rem(num, 5) == 0
   # end
 
-  defp handle_chunk_without_split(chunk, {line, filter, file}) do
-    process_and_filter_chunk(chunk, line, filter, file)
+  defp handle_chunk_without_split(chunk, {state, line, file, newline_pattern}) do
+    case state do
+      :write -> process_chunk_until_newline(chunk, line, file, newline_pattern)
+      :skip  -> process_chunk_until_newline(chunk, false, file, newline_pattern)
+      _      -> filter_chunk(chunk, line, file, newline_pattern)
+    end
   end
-  defp process_and_filter_chunk(<<>>, line, filter, file) do
-    {line, filter, file}
+
+  defp filter_chunk(<<>>, line, file, newline_pattern) do
+    {nil, line, file, newline_pattern}
   end
-  defp process_and_filter_chunk(<<?\n::utf8, rest::binary>>, line, true, file) do
-    IO.binwrite(file, line <> "\n")
-    process_and_filter_chunk(rest, "", nil, file)
-  end
-  defp process_and_filter_chunk(<<?\n::utf8, rest::binary>>, _line, false, file) do
-    process_and_filter_chunk(rest, "", nil, file)
-  end
-  defp process_and_filter_chunk(<<c::utf8, ?,::utf8, rest::binary>>, line, nil, file)
+  defp filter_chunk(<<c::utf8, ?,::utf8, rest::binary>>, line, file, newline_pattern)
   when c in [?0, ?2, ?4, ?5, ?6, ?8] do
-    process_and_filter_chunk(rest, line <> <<c>> <> <<?,>>, true, file)
+    process_chunk_until_newline(rest, line <> <<c>> <> <<?,>>, file, newline_pattern)
   end
-  defp process_and_filter_chunk(<<_c::utf8, ?,::utf8, rest::binary>>, _line, nil, file) do
-    process_and_filter_chunk(rest, nil, false, file)
+  defp filter_chunk(<<_c::utf8, ?,::utf8, rest::binary>>, _line, file, newline_pattern) do
+    process_chunk_until_newline(rest, false, file, newline_pattern)
   end
-  defp process_and_filter_chunk(<<_c::utf8, rest::binary>>, _line, false, file) do
-    process_and_filter_chunk(rest, nil, false, file)
+  defp filter_chunk(<<c::utf8, rest::binary>>, line, file, newline_pattern) do
+    filter_chunk(rest, line <> <<c>>, file, newline_pattern)
   end
-  defp process_and_filter_chunk(<<c::utf8, rest::binary>>, line, filter, file) do
-    process_and_filter_chunk(rest, line <> <<c>>, filter, file)
+
+  defp process_chunk_until_newline(chunk, line, file, newline_pattern) do
+    case :binary.match(chunk, newline_pattern) do
+      {pos, _} ->
+        offset = pos + 1
+        if line, do: IO.binwrite(file, line <> :binary.part(chunk, 0, offset))
+        filter_chunk(:binary.part(chunk, offset, byte_size(chunk) - offset), "", file, newline_pattern)
+      :nomatch when line ->
+        {:write, line <> chunk, file, newline_pattern}
+      :nomatch ->
+        {:skip, false, file, newline_pattern}
+    end
   end
 end
