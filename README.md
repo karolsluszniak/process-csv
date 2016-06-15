@@ -17,6 +17,8 @@ You can generate sample CSV file of given size, compilant with the algorithm, li
 ruby lib/generate.rb sample-500k.csv 500000
 ```
 
+The syntax is: `ruby lib/generate.rb <filename> <rows> [<cols>]` where `<cols>` default to 3.
+
 ## Running benchmarks
 
 Elixir version:
