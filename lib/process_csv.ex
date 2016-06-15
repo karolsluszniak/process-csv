@@ -19,7 +19,7 @@ defmodule ProcessCsv do
   def main([ filename, "read" ]) do
     File.write filename <> ".out",
       File.read!(filename)
-      |> String.split("\n", trim: true)
+      |> String.splitter("\n", trim: true)
       |> Enum.filter(&filter_line/1)
       |> Enum.join("\n")
   end
