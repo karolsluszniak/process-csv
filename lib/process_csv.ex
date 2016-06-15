@@ -1,4 +1,12 @@
 defmodule ProcessCsv do
+  def main([ filename, "read" ]) do
+    File.write filename <> ".out",
+      File.read!(filename)
+      |> String.splitter("\n", trim: true)
+      |> Enum.filter(&filter_line/1)
+      |> Enum.join("\n")
+  end
+
   def main([ filename, "stream-initial" ]) do
     File.open! filename, [:read], fn pid ->
       pid
@@ -16,12 +24,27 @@ defmodule ProcessCsv do
     |> Stream.run
   end
 
-  def main([ filename, "read" ]) do
-    File.write filename <> ".out",
-      File.read!(filename)
-      |> String.splitter("\n", trim: true)
-      |> Enum.filter(&filter_line/1)
-      |> Enum.join("\n")
+  def main([ filename, "stream-chunks" ]) do
+    out_file = File.open!(filename <> ".out", [:write, :raw, :delayed_write])
+
+    File.stream!(filename, [], 4000)
+    |> Enum.reduce({"", out_file}, &handle_chunk/2)
+
+    File.close(out_file)
+  end
+
+  defp handle_chunk(chunk, {unfinished_line, file}) do
+    (unfinished_line <> chunk)
+    |> String.split("\n")
+    |> process_lines(file)
+  end
+
+  defp process_lines([unfinished_line], file), do: {unfinished_line, file}
+  defp process_lines([line | rest], file) do
+    if filter_line(line) do
+      IO.binwrite(file, line <> "\n")
+    end
+    process_lines(rest, file)
   end
 
   defp filter_line(<<c::utf8, ?,::utf8, _::binary>>)
